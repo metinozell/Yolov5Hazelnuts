@@ -1,3 +1,4 @@
+import os
 import cv2
 import serial
 import requests
@@ -8,6 +9,7 @@ from fastapi import FastAPI
 from threading import Thread
 import uvicorn
 from pydantic import BaseModel
+from dotenv import load_dotenv,dotenv_values
 
 class HazelnutSorter:
     def __init__(self, model_path, serial_port='COM4'):
@@ -15,13 +17,13 @@ class HazelnutSorter:
         self.servo_quality_count = 0
         self.model_path = model_path
         self.detector = HazelnutDetector(self.model_path)
-        self.camera_url = "http://172.20.10.3/capture" #http://172.20.10.3/capture
+        self.camera_url = os.getenv("MY_CAMERA_URL") 
         
         try:
             self.arduino = serial.Serial(serial_port, 115200, timeout=1)
             time.sleep(2)
         except serial.SerialException as e:
-            print(f"⚠ Arduino bağlantı hatası: {e}")
+            print(f"Arduino bağlantı hatası: {e}")
             self.arduino = None
 
         self.start_api_server()
@@ -34,14 +36,16 @@ class HazelnutSorter:
                 frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
                 return frame
         except requests.RequestException as e:
-            print(f"⚠ Görüntü alma hatası: {e}")
+            print(f"Görüntü alma hatası: {e}")
         return None
 
     def process_hazelnut(self):
         frame = self.get_camera_frame()
+        
         if frame is None:
-            print("⚠ Görüntü çekilemedi.")
+            print("Görüntü çekilemedi.")
             return
+        frame = cv2.resize(frame, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_LINEAR)
 
         class_names, confidences, boxes = self.detector.detect(frame)
 
@@ -70,8 +74,8 @@ class HazelnutSorter:
                 self.arduino.write(b'BAD\n')
             self.arduino.flush()
 
-        # else:
-            # print("⛔ Geçerli tespit yok, Arduino'ya sinyal gönderilmedi.")
+        else:
+            print("Geçerli tespit yok, Arduino'ya sinyal gönderilmedi.")
 
     def start_api_server(self):
         app = FastAPI()
@@ -85,7 +89,7 @@ class HazelnutSorter:
             return ServoResponse(servo_bad_count=self.servo_bad_count, servo_quality_count=self.servo_quality_count)
 
         def run():
-            uvicorn.run(app, host="127.0.0.1", port=8000)
+            uvicorn.run(app, host=os.getenv("MY_HOST"), port=os.getenv("MY_PORT"))
 
         Thread(target=run, daemon=True).start()
 
